@@ -27,7 +27,6 @@ class TextArea(QPlainTextEdit):
         self.blockSignals(True)
 
         # Set text in editor
-        script.generate_content()
         self.setPlainText(script.content)
         self.apply_formatting(script.section_offsets)
 

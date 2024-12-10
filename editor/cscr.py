@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 import time
 
 from xml.etree.ElementTree import ElementTree, Element, ParseError
-from typing import Self, Any, Tuple
+from typing import Self, Any, Tuple, List
 
 
 class CSCRFile:
@@ -14,7 +14,7 @@ class CSCRFile:
 
         self.content: str = ""
         self.outline: dict[str, list[str] | None] | None = None
-        self.section_offsets: list[(str, int, int, int)] = []
+        self.section_offsets: list[tuple[str, int, int, int]] = []
 
     def generate_ids(self):
         """ Generate a unique id string for each existing element (may change later) """
@@ -127,6 +127,12 @@ class CSCRFile:
 
         element.attrib[element_property] = data
 
+    def _walk_tree(self, root: Element) -> List[Element]:
+        yield root
+
+        for child in root:
+            yield from self._walk_tree(child)
+
     def generate_outline(self):
         pass
 
@@ -134,26 +140,30 @@ class CSCRFile:
     def get_children(cls, element: Element) -> list[Element]:
         return list(element.iter())[1:]
 
-    @classmethod
-    def expand_element(cls, element: Element) -> (str, list[(str, int, int)], str):
-        if element is None: return
+    def generate_content(self):
+        """Generates a readable representation and outline of the script."""
+        self.content = ""
+        rendered_text = []
+        self.section_offsets.clear()
+        text_position = 0
 
-        element_id = element.attrib.get("id", None)
-        if element_id is None:
-            raise ParseError(f"Can't expand {element}. It is missing \"id\" attribute.")
+        for element in self._walk_tree(self.root):
+            # Generate readable section
+            element_id: str = element.attrib.get("id", None)
+            if element_id is None:
+                raise ParseError(f"Can't expand {element}. It is missing \"id\" attribute.")
 
-        inner_content = ""
-        inner_text: list[str] = []
-        inner_offsets: list[(str, int, int)] = []
+            # Is this content readable
+            readable: str = element.attrib.get("readable", None)
+            # No "readable" attribute? Skip entirely
+            if readable is None: continue
 
-        # Is this content readable
-        readable: str = element.attrib.get("readable", None)
-        # No "readable" attribute? Skip to the children
-        if readable is not None:
             header_text: str = ""
             body_text: str = ""
             # "readable" attribute doesn't start with "_"? Use the attribute itself as the only readable portion
-            if readable.startswith("_"):
+            if not readable.startswith("_"):
+                body_text = f"{readable}\n"
+            else:
                 # Parse the "readable" tag if it has instructions for what info is readable
                 text_sources: list[str] = readable[1:].split("_")
                 if "tag" in text_sources:
@@ -166,82 +176,16 @@ class CSCRFile:
                         header_text = f"[{description}]\n\n"
                 if "body" in text_sources:
                     body_text = f"{element.text}\n\n"
-            else:
-                body_text = f"{readable}\n"
+                rendered_text.append(f"{header_text}{body_text}")
 
-            inner_text.append(f"{header_text}{body_text}")
-            # Track offsets
-            inner_offsets.append((element_id, len(header_text), len(body_text)))
-
-        inner_content = inner_content.join(inner_text)
-
-        for child in CSCRFile.get_children(element):
-            child_id, child_offsets, child_text = cls.expand_element(child)
-            inner_offsets.append(child_offsets)
-            inner_content = inner_content.join([child_text])
-
-        return element_id, inner_offsets, inner_content
-
-    def generate_content(self):
-        """Generates a readable representation and outline of the script."""
-        self.content = ""
-        rendered_text = []
-        self.section_offsets.clear()
-        text_position = 0
-        _root_id, offsets, self.content = CSCRFile.expand_element(self.root)
-        for o in offsets:
-            for offset in o:
-                print(offset)
-                ele_id, h_off, b_off = offset
-                start = text_position + h_off
-                end = start + b_off
+                # Track offsets
+                header_len = len(header_text)
+                start = text_position + header_len
+                end = start + len(body_text)
+                self.section_offsets.append((element_id, header_len, start, end))
                 text_position = end
-                self.section_offsets.clear()
-                self.section_offsets.append((ele_id, h_off, start, end))
 
-        """
-
-        for element in list(self.root.iter())[1:]:
-            # Generate readable section
-            element_id: str = element.attrib.get("id", None)
-            if element_id is None:
-                raise ParseError(f"Can't expand {element}. It is missing \"id\" attribute.")
-
-            CSCRFile.expand_element(element)
-
-            # Is this content readable
-            readable: str = element.attrib.get("readable", None)
-            # No "readable" attribute? Skip entirely
-            if readable is None: continue
-
-            header_text: str = ""
-            body_text: str = ""
-            # "readable" attribute doesn't start with "_"? Use the attribute itself as the only readable portion
-            if not readable.startswith("_"):
-                body_text = f"{readable}\n"
-
-            # Parse the "readable" tag if it has instructions for what info is readable
-            text_sources: list[str] = readable[1:].split("_")
-            if "tag" in text_sources:
-                header_text = f"[{str(element.tag).capitalize()}]\n\n"
-            if "desc" in text_sources:
-                description = element.attrib.get("desc", "")
-                if len(header_text) > 0:
-                    header_text = f"{header_text.strip("]\n")} - {description}]\n\n"
-                else:
-                    header_text = f"[{description}]\n\n"
-            if "body" in text_sources:
-                body_text = f"{element.text}\n\n"
-            rendered_text.append(f"{header_text}{body_text}")
-
-            # Track offsets
-            header_len = len(header_text)
-            start = text_position + header_len
-            end = start + len(body_text)
-            self.section_offsets.append((element_id, header_len, start, end))
-            text_position = end
-
-        self.content = "".join(rendered_text) """
+        self.content = "".join(rendered_text)
 
     def validate_version(self, required_version):
         """Ensures compatibility with the required version."""
