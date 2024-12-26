@@ -1,4 +1,6 @@
 # ~/projects/contenta/editor/editor_window.py
+from xml.etree.ElementTree import Element
+
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QFileDialog, QMessageBox
 )
@@ -7,7 +9,7 @@ from PyQt6.QtCore import (
     Qt
 )
 
-from .cscr import CSCRFile
+from .cscr import CSCRTree
 from .text_area import TextArea
 from .outline_pane import OutlinePane
 
@@ -28,12 +30,13 @@ class EditorWindow(QMainWindow):
 
         # Tree view for file structure
         self.tree_view = OutlinePane(self)
-        self.tree_view.element_selected.connect(lambda element_id: print(element_id))
+        self.tree_view.element_selected.connect(lambda element_id: self.text_editor.seek_to_element(element_id))
         central_widget.addWidget(self.tree_view)
 
         # Create a plain text editor
         self.text_editor = TextArea()
-        self.text_editor.script_updated.connect(lambda ele_text: self.cscr_file.from_input(ele_text))
+        self.text_editor.script_updated.connect(lambda ele_id, ele_text: self.cscr_file.set_property(ele_id, "content", ele_text))
+        self.text_editor.header_selected.connect(lambda ele_id: print(ele_id))
 
         # Add the text editor to the layout
         central_widget.setSizes({1, 3})
@@ -46,7 +49,7 @@ class EditorWindow(QMainWindow):
         menu_bar.get_action("Save").triggered.connect(self.save_file)
         self.setMenuBar(menu_bar)
 
-        self.cscr_file: CSCRFile | None = None
+        self.cscr_file: CSCRTree | None = None
         self.active_filename: str | None = None
         self.new_file()
 
@@ -54,9 +57,10 @@ class EditorWindow(QMainWindow):
 
     def new_file(self):
         """Handles creating a new .cscr file."""
-        self.cscr_file = CSCRFile.from_empty()
+        self.cscr_file = CSCRTree()
         self.active_filename = None
         self.tree_view.populate(self.cscr_file)
+
         self.text_editor.render_script(self.cscr_file)
 
     def load_file(self):
@@ -66,7 +70,7 @@ class EditorWindow(QMainWindow):
         )
         if self.active_filename:
             try:
-                self.cscr_file = CSCRFile.from_file(self.active_filename)
+                self.cscr_file = CSCRTree.from_file(self.active_filename)
                 self.tree_view.populate(self.cscr_file)
                 self.text_editor.render_script(self.cscr_file)
             except Exception as e:
@@ -88,3 +92,6 @@ class EditorWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not save file:\n{str(e)}")
 
+    def select_element(self, element: Element):
+        _, off, __ = self.cscr_file.get_element_offset(element)
+        self.text_editor.move_to_pos(off)

@@ -1,41 +1,49 @@
 # ~/projects/contenta/editor/cscr.py
-import xml.etree.ElementTree as ET
 import time
+import xml.etree.ElementTree as ET
+from typing import Self, Any, List, Dict
+from xml.etree.ElementTree import ElementTree, Element
 
-from xml.etree.ElementTree import ElementTree, Element, ParseError
-from typing import Self, Any, Tuple, List
+from PyQt6.QtCore import pyqtSignal, QObject
 
 
-class CSCRFile:
-    def __init__(self, version="1.0"):
-        self.root: Element = Element("cscr")
-        self.root.attrib["id"] = "cscr_root"
-        self.root.attrib["version"] = version
+version = 1.0
+startup_file = f"""
+<cscr version=\"{version}\" id=\"cscr_root\">
+    <title>Untitled</title>
+    <transition desc=\"Fade In\" readable=\"_tag_desc\" />
+    <monologue desc=\"Intro\" readable=\"_tag_desc_body\">
+    Welcome to Contenta, the wonderful content creation tool for video essays and other scripted media.
+    
+    Don't mind the dust... We are still putting things into their proper places. Feel free to look around, and try to break something.
+    </monologue>
+    <monologue desc=\"Conclusion\" readable=\"_tag_desc_body\">
+    We hope this was a rewarding experience. Please come back another time to continue your creative journey!
+    </monologue>
+</cscr>
 
-        self.content: str = ""
-        self.outline: dict[str, list[str] | None] | None = None
-        self.section_offsets: list[tuple[str, int, int, int]] = []
+"""
 
-    def generate_ids(self):
-        """ Generate a unique id string for each existing element (may change later) """
-        # serial_no: A "serial number" for this batch of IDs to prevent collisions
-        serial_no = hex(int(time.time())).strip("0x")
-        # Assign every tag an ID that should be unique
-        for line, child in enumerate(self.root.iter()):
-            child.attrib["id"] = f"_{child.tag}{serial_no}{str(line)}"
 
-    @classmethod
-    def from_empty(cls) -> Self:
-        empty_file = cls()
+class CSCRTree(QObject):
 
-        empty_file.add_element("title", "Untitled")
-        empty_file.add_element("transition", "", { "desc": "Fade in", "readable": "_tag_desc" })
-        empty_file.add_element("monologue", "Once upon a time...", { "desc": "Intro", "readable": "_tag_desc_body"})
-        empty_file.generate_ids()
+    tree_updated = pyqtSignal(Element)
 
-        empty_file.generate_content()
+    def __init__(self,parent: QObject | None = None, target_version: str = f"{version}"):
+        super().__init__(parent)
+        self.root: Element = ET.fromstring(startup_file)
+        try:
+            self.validate_version(target_version)
+        except ValueError as e:
+            print(e)
 
-        return empty_file
+    def index_tree(self) -> Dict[str, Element]:
+        element_list = self._walk_tree(self.root)
+        generated = {}
+        for element in element_list:
+            generated[f"{hex(id(element))[2:]}"] = element
+
+        return generated
 
     @classmethod
     def from_file(cls, filepath):
@@ -52,33 +60,13 @@ class CSCRFile:
             if element_id is None:
                 child.attrib["id"] = child.tag + str(line)
 
-        instance.generate_content()
+        # instance.generate_content()
 
         return instance
 
     def from_input(self, input_text: str):
-        if self.content is None: return
-
-        input_lines: list[str] = input_text.split("\n")
-        content_lines: list[str] = self.content.split("\n")
-        change_pos: int | None = None
-        for line_no, line in input_lines:
-            change_start: int = 0
-            c_line = content_lines[line_no]
-            if line == c_line:
-                change_start += len(line)
-                continue
-
-            for letter_no, letter in line:
-                if letter == c_line[letter_no]:
-                    change_start += letter_no
-                    change_pos = change_start
-                    break
-
-            if change_pos is not None: break
-
-        self.generate_content()
-
+        """Updates the CSCR file from the text editor content."""
+        pass
 
     def to_file(self, filepath):
         """Writes the class data to a .cscr file."""
@@ -99,16 +87,12 @@ class CSCRFile:
         for attribute, value in attributes.items():
             new_element.attrib[attribute] = value
 
+    def drop_element(self, element_id: str):
+        pass
+
     def get_element(self, element_id: str) -> Element | None:
         """Retrieves the content of a given tag."""
-        element_list = self.root.iter()
-        found_element = None
-        for element in element_list:
-            if element_id == element.attrib.get("id", None):
-                found_element = element
-                break
-
-        return found_element
+        return self.index_tree().get(element_id, None)
 
     def get_property(self, element_id: str, element_property: str) -> Any | None:
         element = self.get_element(element_id)
@@ -122,6 +106,7 @@ class CSCRFile:
         element = self.get_element(element_id)
         if element is None: return
         if element_property == "content":
+            print(data)
             element.text = data
             return
 
@@ -133,59 +118,33 @@ class CSCRFile:
         for child in root:
             yield from self._walk_tree(child)
 
-    def generate_outline(self):
-        pass
+    @ classmethod
+    def get_readable(cls, element: Element) -> (str, str):
 
-    @classmethod
-    def get_children(cls, element: Element) -> list[Element]:
-        return list(element.iter())[1:]
+        # Is this content readable
+        readable: str = element.attrib.get("readable", None)
+        # No "readable" attribute? Skip entirely
+        if readable is None: return None, None
 
-    def generate_content(self):
-        """Generates a readable representation and outline of the script."""
-        self.content = ""
-        rendered_text = []
-        self.section_offsets.clear()
-        text_position = 0
-
-        for element in self._walk_tree(self.root):
-            # Generate readable section
-            element_id: str = element.attrib.get("id", None)
-            if element_id is None:
-                raise ParseError(f"Can't expand {element}. It is missing \"id\" attribute.")
-
-            # Is this content readable
-            readable: str = element.attrib.get("readable", None)
-            # No "readable" attribute? Skip entirely
-            if readable is None: continue
-
-            header_text: str = ""
-            body_text: str = ""
-            # "readable" attribute doesn't start with "_"? Use the attribute itself as the only readable portion
-            if not readable.startswith("_"):
-                body_text = f"{readable}\n"
-            else:
-                # Parse the "readable" tag if it has instructions for what info is readable
-                text_sources: list[str] = readable[1:].split("_")
-                if "tag" in text_sources:
-                    header_text = f"[{str(element.tag).capitalize()}]\n\n"
-                if "desc" in text_sources:
-                    description = element.attrib.get("desc", "")
-                    if len(header_text) > 0:
-                        header_text = f"{header_text.strip("]\n")} - {description}]\n\n"
-                    else:
-                        header_text = f"[{description}]\n\n"
-                if "body" in text_sources:
-                    body_text = f"{element.text}\n\n"
-                rendered_text.append(f"{header_text}{body_text}")
-
-                # Track offsets
-                header_len = len(header_text)
-                start = text_position + header_len
-                end = start + len(body_text)
-                self.section_offsets.append((element_id, header_len, start, end))
-                text_position = end
-
-        self.content = "".join(rendered_text)
+        header_text: str = ""
+        body_text: str = ""
+        # "readable" attribute doesn't start with "_"? Use the attribute itself as the only readable portion
+        if not readable.startswith("_"):
+            body_text = f"{readable}\n"
+        else:
+            # Parse the "readable" tag if it has instructions for what info is readable
+            text_sources: list[str] = readable[1:].split("_")
+            if "tag" in text_sources:
+                header_text = f"[{str(element.tag).capitalize()}]\n\n"
+            if "desc" in text_sources:
+                description = element.attrib.get("desc", "")
+                if len(header_text) > 0:
+                    header_text = f"{header_text.strip("]\n")} - {description}]\n\n"
+                else:
+                    header_text = f"[{description}]\n\n"
+            if "body" in text_sources:
+                body_text = f"{element.text}\n\n"
+        return header_text, body_text
 
     def validate_version(self, required_version):
         """Ensures compatibility with the required version."""
