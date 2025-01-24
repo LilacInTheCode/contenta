@@ -10,6 +10,9 @@ from PyQt6.QtCore import (
 )
 
 from .cscr import CSCRTree
+from .cscr_types import (
+    ClipElement
+)
 from .text_area import TextArea
 from .outline_pane import OutlinePane
 
@@ -93,6 +96,9 @@ class EditorWindow(QMainWindow):
                 self, "Save File", "", "CSCR Files (*.cscr);;All Files (*)"
             )
 
+        test_clip = { "title": "Testing Clip", "start": "0", "end": "10" }
+        test_element = ClipElement.validate(test_clip)
+        self.cscr_file.add_element(test_element)
         if self.active_filename:
             # Ensure the file has the .cscr extension
             if not self.active_filename.endswith(".cscr"):

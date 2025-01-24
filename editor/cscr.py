@@ -75,8 +75,10 @@ class CSCRTree(QObject):
         except IOError:
             pass
 
-    def add_element(self, tag: str, content: str = "", attributes=None, parent: Element | None = None):
-        """Adds or updates an element."""
+    def add_element(self, tag: str, content: str = "",
+                    attributes: dict[str, str] | None = None,
+                    parent: Element | None = None) -> None:
+        """Adds or updates an element with data."""
         if attributes is None:
             attributes = dict()
         if parent is None:
@@ -86,6 +88,12 @@ class CSCRTree(QObject):
         new_element.text = content
         for attribute, value in attributes.items():
             new_element.attrib[attribute] = value
+
+    def add_element(self, element: Element, parent: Element | None = None) -> None:
+        """Adds or updates an element with existing element."""
+        if parent is None:
+            parent = self.root
+        parent.append(element)
 
     def drop_element(self, element_id: str):
         pass
@@ -155,10 +163,10 @@ class CSCRTree(QObject):
 
     def validate_version(self, required_version):
         """Ensures compatibility with the required version."""
-        version = self.root.attrib.get("version", "0.0")
-        major, minor = map(int, version.split("."))
+        version_no = self.root.attrib.get("version", "0.0")
+        major, minor = map(int, version_no.split("."))
         req_major, req_minor = map(int, required_version.split("."))
         if major < req_major or (major == req_major and minor < req_minor):
             raise ValueError(
-                f"Incompatible version: {version}. Requires {required_version} or higher."
+                f"Incompatible version: {version_no}. Requires {required_version} or higher."
             )

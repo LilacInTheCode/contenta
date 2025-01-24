@@ -1,13 +1,13 @@
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QPushButton, QSlider, QListWidget, QFileDialog, QLabel,
-    QHBoxLayout, QSizePolicy
+    QHBoxLayout, QSizePolicy, QSpacerItem
 )
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtCore import Qt, QUrl, QTime, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, QTime, QObject, pyqtSignal, QSize
 
-from ui.clip_player_ui import PlayButton, PauseButton, StopButton, StartClipButton, EndClipButton
+from ui.clip_player_ui import PlayButton, PauseButton, StopButton, StartClipButton, EndClipButton, FileControlDecoration
 
 
 class VideoClip(QObject):
@@ -113,6 +113,10 @@ class VideoPlayer(QMainWindow):
 
         self.importButton = QPushButton("Import Video")
         self.importButton.clicked.connect(self.import_video)
+        spacer = FileControlDecoration()
+        spacer.setMinimumWidth(400)
+        self.exportButton = QPushButton("Export Clips")
+        self.exportButton.clicked.connect(self.export_clips)
 
         self.currentClipStart = None
         self.clips = []
@@ -120,7 +124,6 @@ class VideoPlayer(QMainWindow):
         playerLayout = QVBoxLayout()
 
         playerLayout.addWidget(self.videoWidget)
-        # playerLayout.addWidget(self.slider)
 
         controlLayout = QHBoxLayout()
         controlLayout.addWidget(self.playButton)
@@ -130,10 +133,16 @@ class VideoPlayer(QMainWindow):
         controlLayout.addWidget(self.slider)
         controlLayout.addWidget(self.endClipButton)
 
+        fileControlLayout = QHBoxLayout()
+        fileControlLayout.addWidget(self.importButton)
+        fileControlLayout.addWidget(spacer)
+        fileControlLayout.addWidget(self.exportButton)
+
         playerLayout.addLayout(controlLayout)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.importButton)
+        layout.addLayout(fileControlLayout)
+
         layout.addLayout(playerLayout)
         layout.addWidget(QLabel("Clips:"))
         layout.addWidget(self.clipListWidget)
@@ -153,6 +162,9 @@ class VideoPlayer(QMainWindow):
             self.play_video()
             self.clips.append((0, self.mediaPlayer.duration()))
             self.clipListWidget.addItem(f"Full Video: {self.format_time(0)} - {self.format_time(self.mediaPlayer.duration())}")
+
+    def export_clips(self):
+        pass
 
     @staticmethod
     def format_time(ms):
