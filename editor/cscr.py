@@ -90,6 +90,13 @@ class CSCRTree(QObject):
     def drop_element(self, element_id: str):
         pass
 
+    def get_tag_text(self, tag: str) -> str:
+        for _, element in self.index_tree().items():
+            if element.tag == tag:
+                return element.text
+
+        return ""
+
     def get_element(self, element_id: str) -> Element | None:
         """Retrieves the content of a given tag."""
         return self.index_tree().get(element_id, None)

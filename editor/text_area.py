@@ -6,6 +6,8 @@ from PyQt6.QtGui import (
     QFont, QTextOption, QTextCursor, QTextCharFormat, QColor
 )
 
+from ui.menus import HeaderContextMenu
+
 from editor.cscr import CSCRTree
 
 
@@ -35,7 +37,10 @@ class TextArea(QPlainTextEdit):
         self.select_header_fore: QColor = QColor(255, 255, 200, 255)
         self.select_header_back: QColor = QColor(20, 20, 100, 255)
 
+        self.section_element: str = ""
         self.section_selected: tuple[int, int, int] | None = None
+
+        self.header_context_menu = HeaderContextMenu(self)
 
     @override
     def focusInEvent(self, e):
@@ -58,6 +63,11 @@ class TextArea(QPlainTextEdit):
         if e.text() == '':
             self.update_cursor()
         super().keyPressEvent(e)
+        
+    @override
+    def contextMenuEvent(self, e):
+        if self.section_selected is not None:
+            self.header_context_menu.exec(e.globalPos(), self.section_element)
 
     def update_cursor(self):
         self.last_cursor_pos = self.textCursor().position()
@@ -68,6 +78,7 @@ class TextArea(QPlainTextEdit):
             h_len, off_s, off_e = offset
             try:
                 if off_s - h_len < self.last_cursor_pos < off_e:
+                    self.section_element = ele_id
                     if self.last_cursor_pos < off_s:
                         # print("header")
                         self.highlight_section(offset, (self.select_header_fore, self.select_header_back))
@@ -79,6 +90,7 @@ class TextArea(QPlainTextEdit):
                         self.setReadOnly(False)
                     break
                 else:
+                    self.section_element = ""
                     self.setReadOnly(True)
             except TypeError:
                 print(ele_id)
@@ -87,9 +99,13 @@ class TextArea(QPlainTextEdit):
         element = self.readable_offsets.get(element_id, None)
         if element is None: return
 
-        _h_len, start, _end = element
+        h_len, start, end = element
         cursor = self.textCursor()
-        cursor.setPosition(start + 1)
+        if start == end:
+            cursor.setPosition(start - h_len)
+            self.highlight_section(element, (self.select_header_fore, self.select_header_back))
+        else:
+            cursor.setPosition(start + 1)
         self.setTextCursor(cursor)
 
         self.update_cursor()
@@ -162,12 +178,13 @@ class TextArea(QPlainTextEdit):
     def text_changed(self):
         cur_cursor_pos = self.textCursor().position()
         change_buffer = self.toPlainText()[self.last_cursor_pos:cur_cursor_pos]
-        change_len = len(change_buffer)
 
         # print(f"Between {self.last_cursor_pos}:{cur_cursor_pos} - {change_buffer}\nChange length: {change_len}")
 
         changed_element = ""
         shift_elements: list[str] = []
+
+        if self.last_cursor_pos is None: return
 
         for element_id, offsets in self.readable_offsets.items():
             h_len, off_s, off_e = offsets
@@ -189,5 +206,3 @@ class TextArea(QPlainTextEdit):
         self.last_cursor_pos = cur_cursor_pos
         """Emit the new text buffer."""
         self.script_updated.emit(changed_element, self.toPlainText()[c_off_s:c_off_e].strip('\n'))
-
-

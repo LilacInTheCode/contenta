@@ -2,7 +2,7 @@
 from xml.etree.ElementTree import Element
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QSplitter, QFileDialog, QMessageBox
+    QMainWindow, QSplitter, QFileDialog, QMessageBox, QInputDialog
 )
 
 from PyQt6.QtCore import (
@@ -13,7 +13,7 @@ from .cscr import CSCRTree
 from .text_area import TextArea
 from .outline_pane import OutlinePane
 
-from ui.menu_bar import FileMenu
+from ui.menus import FileMenu
 
 
 class EditorWindow(QMainWindow):
@@ -21,7 +21,6 @@ class EditorWindow(QMainWindow):
         super().__init__()
 
         # Set the window properties
-        self.setWindowTitle("Contenta")
         self.setGeometry(100, 100, 1000, 600)
 
         # Create the main widget
@@ -47,7 +46,9 @@ class EditorWindow(QMainWindow):
         menu_bar.get_action("New").triggered.connect(self.new_file)
         menu_bar.get_action("Load").triggered.connect(self.load_file)
         menu_bar.get_action("Save").triggered.connect(self.save_file)
+        menu_bar.get_action("Change Title").triggered.connect(self.set_title_dialog)
         self.setMenuBar(menu_bar)
+        self.update_title_bar()
 
         self.cscr_file: CSCRTree | None = None
         self.active_filename: str | None = None
@@ -55,11 +56,20 @@ class EditorWindow(QMainWindow):
 
         self.active_tag = None
 
+    def update_title_bar(self, additional: str = ""):
+        join_title = ""
+        if additional != "":
+            join_title = "".join(" - ")
+
+        self.setWindowTitle(f"Contenta{join_title}{additional}")
+
     def new_file(self):
         """Handles creating a new .cscr file."""
         self.cscr_file = CSCRTree()
         self.active_filename = None
         self.tree_view.populate(self.cscr_file)
+
+        self.update_title_bar(f"{self.cscr_file.get_tag_text("title")}")
 
         self.text_editor.render_script(self.cscr_file)
 
@@ -91,6 +101,15 @@ class EditorWindow(QMainWindow):
                 self.cscr_file.to_file(self.active_filename)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not save file:\n{str(e)}")
+
+    def set_title_dialog(self):
+        new_title, ok = QInputDialog.getText(self, "New Script Title", "Enter a new title for this script...")
+        if ok and len(new_title) > 0:
+            for ele_id, element in self.cscr_file.index_tree().items():
+                if element.tag == "title":
+                    self.cscr_file.set_property(ele_id, "content", new_title)
+                    self.update_title_bar(new_title)
+                    return
 
     def select_element(self, element: Element):
         _, off, __ = self.cscr_file.get_element_offset(element)
