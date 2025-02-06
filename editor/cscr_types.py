@@ -9,6 +9,7 @@ class CSCRElement(Element):
 
     @classmethod
     def validate(cls, data: dict[str, str]) -> Element | None:
+        """For child classes to implement their own data validation"""
         return None
 
 
@@ -18,6 +19,7 @@ class ClipElement(CSCRElement):
 
     @classmethod
     def validate(cls, data: dict[str, str]) -> Element | None:
+        # Title of the clip goes in between the tags
         title = data.pop("title", "untitled clip")
         start = data.get("start", None)
         end = data.get("end", None)
@@ -25,7 +27,6 @@ class ClipElement(CSCRElement):
             return None
 
         new_element = cls()
-        new_element.attrib["readable"] = "_body"
         new_element.text = title
 
         new_element.attrib.update(data)

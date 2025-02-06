@@ -1,33 +1,44 @@
 import sys
+
+from PyQt6.QtCore import Qt, QUrl, QTime, QObject, pyqtSignal
+from PyQt6.QtMultimedia import QMediaPlayer, QMediaMetaData, QAudioOutput
+from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QPushButton, QSlider, QListWidget, QFileDialog, QLabel,
-    QHBoxLayout, QSizePolicy, QSpacerItem
+    QHBoxLayout, QSizePolicy
 )
-from PyQt6.QtMultimedia import QMediaPlayer
-from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtCore import Qt, QUrl, QTime, QObject, pyqtSignal, QSize
 
 from ui.clip_player_ui import PlayButton, PauseButton, StopButton, StartClipButton, EndClipButton, FileControlDecoration
 
 
 class VideoClip(QObject):
+    """ Container for managing clip data """
+
     clip_begin = pyqtSignal(int)
+    """ Emitted on the start of a video clip """
     clip_end = pyqtSignal(int)
+    """ Emitted on the end of a video clip """
     zero_clip = pyqtSignal()
+    """ Clip generated is zero (0) seconds long """
 
     title_set = pyqtSignal(str)
+    """ Internal title of the reference clip changed """
 
     def __init__(self, start: int | None = None, end: int | None = None, title: str = "Video Clip"):
         super().__init__()
 
-        self.title: str = title
-        if title == "":
-            self.title = "Video Clip"
+        self.title: str = ""
+        self.start: int = 0
+        self.end: int = 0
 
-        self.start: int = max(start, 0)
-        self.end: int = max(end, 0)
-        if self.start > self.end:
-            self.start = self.end
+        if title == "":
+            title = "Video Clip"
+        self.setTitle(title)
+
+        if start is not None:
+            self.startClip(max(start, 0))
+        if end is not None:
+            self.endClip(max(end, 0))
 
     def beginClip(self, start: int):
         self.start = max(start, 0)
@@ -40,12 +51,15 @@ class VideoClip(QObject):
 
     def endClip(self, end: int):
         self.end = max(end, 0)
-        if self.start > self.end:
+        if self.start >= self.end:
             self.start = self.end
+            self.zero_clip.emit()
+        self.clip_end.emit()
 
     def setTitle(self, title: str):
         if not title == "":
             self.title = title
+            self.title_set.emit()
 
     def getBounds(self) -> (int, int):
         return self.start, self.end
@@ -60,29 +74,53 @@ class VideoClip(QObject):
 
 
 class ReferenceVideo(QObject):
+    clipChanged = pyqtSignal()
+    mediaRefChanged = pyqtSignal()
+
     def __init__(self):
         super().__init__()
 
         self.filename: str | None = None
-        self.mediaPlayer: QMediaPlayer | None = None
-        self.clips: dict[int, VideoClip] = {}
+        self.media = QMediaPlayer(None)
+        self.media.errorChanged.connect(self.onMediaError)
+        self.media.sourceChanged.connect(self.onMediaChanged)
+        self.clips: dict[str, VideoClip] = {}
 
-    def setVideoRef(self, filename: str):
-        pass
+    def onMediaError(self) -> None:
+        raise InterruptedError(
+            "Reference video error: ".join(self.media.errorString())
+        )
 
-    def newClip(self, clip: VideoClip):
-        if self.filename is None: return
-        if clip is None: return
-        if clip.duration() < 0: return
+    def onMediaChanged(self, mediaUrl: QUrl) -> None:
+        self.newClip(0, self.media.duration(), "Entire Video")
+        print(mediaUrl.toString())
 
-        self.clips[1] = clip
+    def setVideoRef(self, filename: str) -> None:
+        self.clips.clear()
+        self.media.setSource(QUrl.fromLocalFile(filename))
+
+    def newClip(self, start: int, end: int, title: str | None) -> str | None:
+        """ Creates a new VideoClip object with a given
+            'start' and 'end' """
+        if self.filename is None: return None
+        if end - start < 0: return None
+
+        clip = VideoClip(start, end, title)
+
+        clip_id = clip.objectName()
+        self.clips[clip_id] = clip
+
+        return clip_id
+
+    def discardClip(self, clipID: str) -> None:
+        self.clips.pop(clipID)
 
 
 class VideoPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("PyQt6 Video Player")
+        self.setWindowTitle("New Reference - Video")
         self.setGeometry(100, 100, 800, 600)
 
         widget = QWidget(self)
@@ -90,7 +128,9 @@ class VideoPlayer(QMainWindow):
 
         self.videoWidget = QVideoWidget()
         self.videoWidget.setMinimumSize(640, 480)
-        self.mediaPlayer = QMediaPlayer(None)
+        self.audioOutput = QAudioOutput()
+        self.refVideo: ReferenceVideo | None = None
+        self.mediaPlayer: QMediaPlayer | None = None
 
         self.playButton = PlayButton()
         self.playButton.clicked.connect(self.play_video)
@@ -149,19 +189,22 @@ class VideoPlayer(QMainWindow):
 
         widget.setLayout(layout)
 
-        self.mediaPlayer.setVideoOutput(self.videoWidget)
-        self.mediaPlayer.positionChanged.connect(self.position_changed)
-        self.mediaPlayer.durationChanged.connect(self.duration_changed)
+        # self.mediaPlayer.setVideoOutput(self.videoWidget)
+        # self.mediaPlayer.positionChanged.connect(self.position_changed)
+        # self.mediaPlayer.durationChanged.connect(self.duration_changed)
 
     def import_video(self):
-        fileName, _ = QFileDialog.getOpenFileName(self, "Open Video File", "", "Video Files (*.mp4 *.avi *.mkv)")
+        fileName, _ = QFileDialog.getOpenFileName(QFileDialog(), "Open Video File", "", "Video Files (*.mp4 *.avi *.mkv)")
         if fileName:
-            self.mediaPlayer.setSource(QUrl.fromLocalFile(fileName))
+            self.refVideo = ReferenceVideo()
+            self.refVideo.setVideoRef(fileName)
+            self.mediaPlayer = self.refVideo.media
             self.mediaPlayer.setVideoOutput(self.videoWidget)
+            self.mediaPlayer.setAudioOutput(self.audioOutput)
             self.videoWidget.show()
             self.play_video()
-            self.clips.append((0, self.mediaPlayer.duration()))
-            self.clipListWidget.addItem(f"Full Video: {self.format_time(0)} - {self.format_time(self.mediaPlayer.duration())}")
+            # self.clips.append((0, self.mediaPlayer.duration()))
+            # self.clipListWidget.addItem(f"Full Video: {self.format_time(0)} - {self.format_time(self.mediaPlayer.duration())}")
 
     def export_clips(self):
         pass
